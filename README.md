@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server that connects AI agents to the AuthiChain product-authenticity API.
 
-> **Status: early development.** Product verification and certificate issuance are not live yet. Tool calls may return errors or `not_found` until the API work lands. Don't rely on this for real authenticity decisions today.
+> **Status: early development.** The `verify` tool calls AuthiChain's verify endpoint, which requires an API key (`AUTHICHAIN_API_KEY`). Issuing AuthiChain certificates is still in development, so most lookups won't find a record yet. Tool calls may return errors or `not_found` until the API work lands. Don't rely on this for real authenticity decisions today.
 
 It wraps the AuthiChain REST API. Verification logic and scoring run in the hosted API, not in this repo.
 
