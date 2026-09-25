@@ -30,6 +30,18 @@ npm install
 npm run build
 ```
 
+### From npm (prepared, not yet published)
+
+> `authichain-mcp-server` is not on npm yet. Until it is, run `npm pack` in this repo and use the resulting `authichain-mcp-server-0.1.0.tgz` path in place of the package name.
+
+```bash
+npx -y authichain-mcp-server                                              # starts on stdio (what MCP clients launch)
+claude mcp add authichain -e AUTHICHAIN_API_KEY=your_key -- npx -y authichain-mcp-server
+npx @modelcontextprotocol/inspector npx -y authichain-mcp-server         # browse the tools
+```
+
+For Claude Desktop, use `"command": "npx", "args": ["-y", "authichain-mcp-server"]` in place of the `node /absolute/path/...` entry shown below.
+
 ### Get an API key
 
 The hosted API issues free keys. Send a POST to `/api/v1/keys/create` on the API base URL (the `AUTHICHAIN_API_URL` value in [Configuration](#configuration)) with your email:

@@ -1,14 +1,46 @@
 {
   "name": "authichain-mcp-server",
-  "version": "1.0.0",
-  "description": "MCP server for AuthiChain product authentication API — verify products, mint certificates, check EU DPP compliance, and query the Truth Network via any AI agent.",
+  "version": "0.1.0",
+  "description": "MCP server for the AuthiChain product-authentication API (early development): product lookup, registry search, EU DPP checks and pricing for any MCP client.",
   "type": "module",
+  "license": "MIT",
+  "author": "Zachary Kietzman",
+  "homepage": "https://github.com/undone0603/authichain-mcp-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/undone0603/authichain-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/undone0603/authichain-mcp-server/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "authichain",
+    "product-authentication",
+    "provenance",
+    "digital-product-passport"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "main": "dist/index.js",
+  "bin": {
+    "authichain-mcp-server": "bin/authichain-mcp-server.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "inspect": "npx @modelcontextprotocol/inspector"
+    "inspect": "npx @modelcontextprotocol/inspector",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
