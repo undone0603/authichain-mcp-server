@@ -1,6 +1,8 @@
 # AuthiChain MCP Server
 
-An MCP (Model Context Protocol) server that lets AI agents check whether a product is registered as authentic with AuthiChain, and lets brands register products and issue certificates on Polygon.
+An MCP (Model Context Protocol) server that connects AI agents to the AuthiChain product-authenticity API.
+
+> **Status: early development.** Product verification and certificate issuance are not live yet. Tool calls may return errors or `not_found` until the API work lands. Don't rely on this for real authenticity decisions today.
 
 It wraps the AuthiChain REST API. Verification logic and scoring run in the hosted API, not in this repo.
 
