@@ -101,8 +101,6 @@ To host it, run the same commands on any machine or platform that can run a Node
 
 ## License
 
-<!-- TODO: license not chosen yet (Zachary's decision). Add a LICENSE file and update this section. -->
-
-TODO
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 More at [authichain.com](https://authichain.com).
