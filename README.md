@@ -2,22 +2,22 @@
 
 An MCP (Model Context Protocol) server that connects AI agents to the AuthiChain product-authenticity API.
 
-> **Status: early development.** Product verification and certificate issuance are not live yet. Tool calls may return errors or `not_found` until the API work lands. Don't rely on this for real authenticity decisions today.
+> **Status: early development.** The `verify` tool calls AuthiChain's verify endpoint, which requires an API key (`AUTHICHAIN_API_KEY`). Issuing AuthiChain certificates is still in development, so most lookups won't find a record yet. Tool calls may return errors or `not_found` until the API work lands. Don't rely on this for real authenticity decisions today.
 
 It wraps the AuthiChain REST API. Verification logic and scoring run in the hosted API, not in this repo.
 
 ## Tools
 
-| Tool | What it does |
-|------|--------------|
-| `authichain_verify_product` | Look up a product ID. Planned: a trust score (0-100) and a verdict. In development. |
-| `authichain_register_product` | Register a product in the AuthiChain registry. |
-| `authichain_mint_certificate` | Planned: issue a certificate for a registered product. Not yet available. |
-| `authichain_search_products` | Search the registry of authenticated products. |
-| `authichain_check_eu_dpp` | Check a product against EU Digital Product Passport requirements. |
-| `authichain_truth_network` | Query the scoring service directly for an authenticity assessment. |
-| `authichain_verify_cannabis` | Verify a cannabis product (StrainChain). |
-| `authichain_get_pricing` | Return current API pricing. |
+| Tool | API endpoint | What it does |
+|------|--------------|--------------|
+| `authichain_verify_product` | `POST /api/v1/verify` | Look up a TrueMark ID / serial / SKU / product UUID. Returns `verified`, status, an evidence-based trust score (0-100), the evidence checks, and a signed certificate when the API has a signing key. |
+| `authichain_register_product` | `POST /api/v1/register` | Register a product in the AuthiChain registry (pending anchoring; no mint). |
+| `authichain_search_products` | `GET /api/v1/products` | List registered products (optionally by category); query/brand filtered client-side on the page. |
+| `authichain_get_pricing` | – (static) | Return API pricing. |
+| `authichain_mint_certificate` | none yet | **Not yet available** — returns an error; nothing is minted. |
+| `authichain_check_eu_dpp` | none yet | **Not yet available** — returns an error. |
+| `authichain_truth_network` | none yet | **Not yet available** — returns an error. |
+| `authichain_verify_cannabis` | none yet | **Not yet available** — returns an error. |
 
 ## Quick start
 
