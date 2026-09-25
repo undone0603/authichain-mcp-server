@@ -1,6 +1,8 @@
 # AuthiChain MCP Server
 
-An MCP (Model Context Protocol) server that lets AI agents check whether a product is registered as authentic with AuthiChain, and lets brands register products and issue certificates on Polygon.
+An MCP (Model Context Protocol) server that connects AI agents to the AuthiChain product-authenticity API.
+
+> **Status: early development.** Product verification and certificate issuance are not live yet. Tool calls may return errors or `not_found` until the API work lands. Don't rely on this for real authenticity decisions today.
 
 It wraps the AuthiChain REST API. Verification logic and scoring run in the hosted API, not in this repo.
 
@@ -8,9 +10,9 @@ It wraps the AuthiChain REST API. Verification logic and scoring run in the host
 
 | Tool | What it does |
 |------|--------------|
-| `authichain_verify_product` | Verify a product ID. Returns a trust score (0-100), a verdict, and whether a blockchain certificate exists. |
+| `authichain_verify_product` | Look up a product ID. Planned: a trust score (0-100) and a verdict. In development. |
 | `authichain_register_product` | Register a product in the AuthiChain registry. |
-| `authichain_mint_certificate` | Issue a certificate for a registered product on Polygon. |
+| `authichain_mint_certificate` | Planned: issue a certificate for a registered product. Not yet available. |
 | `authichain_search_products` | Search the registry of authenticated products. |
 | `authichain_check_eu_dpp` | Check a product against EU Digital Product Passport requirements. |
 | `authichain_truth_network` | Query the scoring service directly for an authenticity assessment. |
