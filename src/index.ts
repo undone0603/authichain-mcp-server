@@ -9,7 +9,7 @@ import { z } from "zod";
 // Monetization: Every tool call = billable API event via Stripe
 // ═══════════════════════════════════════════════════════════════
 
-const API_BASE = process.env.AUTHICHAIN_API_URL || "https://authichain-api.authichain2026.workers.dev";
+const API_BASE = process.env.AUTHICHAIN_API_URL || "https://authichain-api.undone-k.workers.dev";
 const API_KEY = process.env.AUTHICHAIN_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://nhdnkzhtadfkkluiulhs.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || "";
