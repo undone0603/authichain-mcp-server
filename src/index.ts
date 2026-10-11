@@ -22,7 +22,10 @@ async function apiRequest<T>(
   body?: Record<string, unknown>,
   params?: Record<string, string>
 ): Promise<T> {
-  const url = new URL(`${API_BASE}/${endpoint}`);
+  // Endpoints are paths under the deployed authichain-api Worker, e.g.
+  // "/api/v1/verify". The old root paths (/verify, /products/register, ...)
+  // do not exist and always returned 404.
+  const url = new URL(`${API_BASE.replace(/\/+$/, "")}${endpoint}`);
   if (params) {
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   }
@@ -74,6 +77,17 @@ async function supabaseQuery<T>(
   return res.json() as Promise<T>;
 }
 
+// Tools whose backing endpoint does not exist on authichain-api yet return
+// this instead of calling a path that would 404.
+function notYetAvailable(tool: string, detail: string) {
+  const text =
+    `${tool} is not yet available: the AuthiChain API (${API_BASE}) has no endpoint for it. ${detail}`.trim();
+  return {
+    content: [{ type: "text" as const, text }],
+    isError: true,
+  };
+}
+
 // ─── Server Initialization ────────────────────────────────────
 
 const server = new McpServer({
@@ -90,20 +104,13 @@ server.registerTool(
   "authichain_verify_product",
   {
     title: "Verify Product Authenticity",
-    description: `Verify the authenticity of a product using AuthiChain's 5-agent AI consensus system (Truth Network).
+    description: `Verify a product against the AuthiChain registry (POST /api/v1/verify).
 
-Returns a trust score (0-100), consensus verdict, and individual agent assessments from:
-- Guardian (35% weight): Primary authentication analysis
-- Archivist (20%): Historical record verification
-- Sentinel (25%): Anomaly and fraud detection
-- Scout (8%): Market intelligence cross-reference
-- Arbiter (12%): Final consensus arbitration
+Looks the identifier up by TrueMark ID, serial number, SKU, or product UUID. Returns whether it is verified, a status (verified / unverified / ambiguous / not_found), a trust score (0-100) computed from the evidence on record, the evidence checks, and — when the API has a signing key configured — an Ed25519-signed certificate (JWS) verifiable against the API's JWKS.
 
 Args:
-  - product_id (string): AuthiChain product ID, blockchain certificate hash, or QR code payload
-  - include_history (boolean): Include full scan and verification history (default: false)
-
-Returns: Trust score, consensus verdict, agent assessments, blockchain certificate status, and optionally scan history.
+  - product_id (string): TrueMark ID, serial number, SKU, or product UUID
+  - include_history (boolean): Not supported by the API yet; ignored
 
 Use when: A user asks "Is this product authentic?", "Verify this item", or needs to check product provenance.`,
     inputSchema: {
@@ -119,28 +126,24 @@ Use when: A user asks "Is this product authentic?", "Verify this item", or needs
   },
   async ({ product_id, include_history }) => {
     try {
-      const result = await apiRequest<any>("verify", "POST", {
-        product_id,
-        include_history,
-        source: "mcp",
+      const result = await apiRequest<any>("/api/v1/verify", "POST", {
+        serial: product_id,
       });
 
       const output = {
         product_id,
+        verified: result.verified === true,
+        status: result.status ?? "unknown",
         trust_score: result.trust_score ?? 0,
-        verdict: result.verdict ?? "UNKNOWN",
-        blockchain_verified: result.blockchain_verified ?? false,
-        certificate_hash: result.certificate_hash ?? null,
-        agents: result.agents ?? {
-          guardian: { score: 0, assessment: "No data" },
-          archivist: { score: 0, assessment: "No data" },
-          sentinel: { score: 0, assessment: "No data" },
-          scout: { score: 0, assessment: "No data" },
-          arbiter: { score: 0, assessment: "No data" },
-        },
-        scan_count: result.scan_count ?? 0,
-        last_scanned: result.last_scanned ?? null,
-        ...(include_history ? { history: result.history ?? [] } : {}),
+        message: result.message ?? null,
+        product: result.product ?? null,
+        blockchain: result.blockchain ?? null,
+        evidence: result.evidence ?? [],
+        certificate: result.certificate ?? null,
+        ...(result.candidates ? { candidates: result.candidates } : {}),
+        ...(include_history
+          ? { history_note: "Verification history is not available from the API yet." }
+          : {}),
       };
 
       return {
@@ -165,7 +168,7 @@ server.registerTool(
   "authichain_register_product",
   {
     title: "Register Product for Authentication",
-    description: `Register a new product in the AuthiChain authentication network. Creates a blockchain certificate on Polygon and generates a unique QR code for verification.
+    description: `Register a new product in the AuthiChain registry (POST /api/v1/register). Returns the product ID, its TrueMark ID, and QR payload URLs. The product is stored as pending blockchain anchoring; no NFT is minted and no on-chain transaction is made by this call.
 
 Args:
   - name (string): Product name
@@ -173,10 +176,10 @@ Args:
   - category (string): Product category (e.g., 'cannabis', 'luxury', 'electronics', 'pharma', 'textile', 'food')
   - description (string): Product description
   - metadata (object, optional): Additional product metadata (batch, serial, origin, etc.)
-  - mint_nft (boolean): Whether to mint an NFT certificate on Polygon (default: true)
-  - generate_qr (boolean): Whether to generate a QRON QR code (default: true)
+  - mint_nft (boolean): Not supported by the API yet; ignored
+  - generate_qr (boolean): Not supported by the API yet; ignored (QR payload URLs are always returned)
 
-Returns: Product ID, certificate hash, QR code URL, and blockchain transaction details.
+Returns: Product ID, TrueMark ID, anchoring status, and QR payload URLs.
 
 Use when: A brand wants to register a product for authentication, or a user asks to "add a product to AuthiChain".`,
     inputSchema: {
@@ -186,8 +189,8 @@ Use when: A brand wants to register a product for authentication, or a user asks
         .describe("Product category"),
       description: z.string().max(1000).default("").describe("Product description"),
       metadata: z.record(z.string(), z.any()).optional().describe("Additional metadata (batch, serial, origin)"),
-      mint_nft: z.boolean().default(true).describe("Mint NFT certificate on Polygon"),
-      generate_qr: z.boolean().default(true).describe("Generate QRON QR code"),
+      mint_nft: z.boolean().default(false).describe("Not supported yet; ignored"),
+      generate_qr: z.boolean().default(false).describe("Not supported yet; ignored"),
     },
     annotations: {
       readOnlyHint: false,
@@ -196,23 +199,25 @@ Use when: A brand wants to register a product for authentication, or a user asks
       openWorldHint: false,
     },
   },
-  async ({ name, brand, category, description, metadata, mint_nft, generate_qr }) => {
+  async ({ name, brand, category, description, metadata }) => {
     try {
-      const result = await apiRequest<any>("products/register", "POST", {
-        name, brand, category, description,
-        metadata: metadata ?? {},
-        mint_nft, generate_qr,
-        source: "mcp",
+      const result = await apiRequest<any>("/api/v1/register", "POST", {
+        name,
+        brand,
+        category,
+        description,
+        ...(metadata ? { metadata } : {}),
       });
 
+      const product = result.product ?? {};
       const output = {
-        product_id: result.product_id,
-        certificate_hash: result.certificate_hash ?? null,
-        qr_code_url: result.qr_code_url ?? null,
-        blockchain_tx: result.blockchain_tx ?? null,
-        polygon_contract: "0x4da4D2675e52374639C9c954f4f653887A9972BE",
-        status: "registered",
-        created_at: new Date().toISOString(),
+        product_id: product.id ?? null,
+        truemark_id: product.truemark_id ?? null,
+        anchoring_status: product.blockchain_tx_hash ?? null,
+        scan_url: result.qrPayload?.scan_url ?? null,
+        verify_url: result.qrPayload?.verify_url ?? null,
+        status: result.success ? "registered" : "failed",
+        registered_at: product.registered_at ?? null,
       };
 
       return {
@@ -237,7 +242,7 @@ server.registerTool(
   "authichain_search_products",
   {
     title: "Search Authenticated Products",
-    description: `Search the AuthiChain product registry. Find authenticated products by name, brand, category, or metadata.
+    description: `List registered products from the AuthiChain registry (GET /api/v1/products), optionally by category. The API has no text search yet, so the query and brand filters are applied by this server to the returned page only.
 
 Args:
   - query (string): Search query (matches name, brand, description)
@@ -246,7 +251,7 @@ Args:
   - limit (number): Max results (1-50, default: 20)
   - offset (number): Pagination offset (default: 0)
 
-Returns: List of authenticated products with trust scores, certificate status, and scan counts.`,
+Returns: Registered products on the requested page that match the query/brand filters.`,
     inputSchema: {
       query: z.string().min(1).max(200).describe("Search query"),
       category: z.string().optional().describe("Category filter"),
@@ -264,30 +269,36 @@ Returns: List of authenticated products with trust scores, certificate status, a
   async ({ query, category, brand, limit, offset }) => {
     try {
       const params: Record<string, string> = {
-        q: query,
         limit: String(limit),
         offset: String(offset),
       };
       if (category) params.category = category;
-      if (brand) params.brand = brand;
 
-      const result = await apiRequest<any>("products/search", "GET", undefined, params);
+      const result = await apiRequest<any>("/api/v1/products", "GET", undefined, params);
+
+      const q = query.toLowerCase();
+      const b = brand?.toLowerCase();
+      const page: any[] = Array.isArray(result.products) ? result.products : [];
+      const matches = page.filter((p: any) => {
+        const hay = `${p.name ?? ""} ${p.brand ?? ""} ${p.truemark_id ?? ""}`.toLowerCase();
+        return hay.includes(q) && (!b || String(p.brand ?? "").toLowerCase() === b);
+      });
 
       const output = {
-        total: result.total ?? 0,
-        count: result.products?.length ?? 0,
+        count: matches.length,
+        page_size: page.length,
         offset,
-        products: (result.products ?? []).map((p: any) => ({
+        products: matches.map((p: any) => ({
           product_id: p.id,
           name: p.name,
           brand: p.brand,
           category: p.category,
-          trust_score: p.trust_score ?? 0,
-          certificate_hash: p.certificate_hash,
-          scan_count: p.scan_count ?? 0,
-          verified: p.blockchain_verified ?? false,
+          truemark_id: p.truemark_id ?? null,
+          blockchain_tx_hash: p.blockchain_tx_hash ?? null,
+          registered_at: p.created_at ?? null,
         })),
-        has_more: (result.total ?? 0) > offset + (result.products?.length ?? 0),
+        has_more: result.has_more === true,
+        note: "Text/brand filtering is done client-side on this page; the API has no search endpoint yet.",
       };
 
       return {
@@ -312,7 +323,9 @@ server.registerTool(
   "authichain_check_eu_dpp",
   {
     title: "Check EU Digital Product Passport Compliance",
-    description: `Check whether a product meets EU Digital Product Passport (DPP) requirements under ESPR Regulation (EU) 2024/1781.
+    description: `NOT YET AVAILABLE — the AuthiChain API has no endpoint for this tool; calling it returns an error without contacting the API.
+
+Check whether a product meets EU Digital Product Passport (DPP) requirements under ESPR Regulation (EU) 2024/1781.
 
 The EU DPP is mandatory from February 2027 for batteries, with textiles, electronics, furniture following through 2030. Products without a DPP cannot be sold in the EU market.
 
@@ -347,35 +360,10 @@ Use when: A manufacturer asks about EU compliance, DPP readiness, or needs to ge
     },
   },
   async ({ product_id, category, generate_passport }) => {
-    try {
-      const result = await apiRequest<any>("dpp/check", "POST", {
-        product_id, category, generate_passport, source: "mcp",
-      });
-
-      const output = {
-        product_id,
-        category,
-        compliance_score: result.compliance_score ?? 0,
-        status: result.status ?? "non_compliant",
-        eu_deadline: result.eu_deadline ?? "2027-02-18",
-        missing_fields: result.missing_fields ?? [],
-        remediation_steps: result.remediation_steps ?? [],
-        qr_data_carrier: result.qr_data_carrier ?? false,
-        gs1_compatible: result.gs1_compatible ?? false,
-        json_ld_valid: result.json_ld_valid ?? false,
-        ...(generate_passport ? { passport_url: result.passport_url } : {}),
-      };
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(output, null, 2) }],
-        structuredContent: output,
-      };
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `DPP check failed: ${(error as Error).message}` }],
-        isError: true,
-      };
-    }
+    return notYetAvailable(
+      "EU DPP compliance check",
+      `No DPP endpoint exists yet (requested: product ${product_id}, category ${category}${generate_passport ? ", passport generation" : ""}).`
+    );
   }
 );
 
@@ -388,7 +376,9 @@ server.registerTool(
   "authichain_truth_network",
   {
     title: "Query the AuthiChain Truth Network",
-    description: `Query the AuthiChain Truth Network — a 5-agent AI consensus system that evaluates product authenticity using independent analysis from specialized AI agents.
+    description: `NOT YET AVAILABLE — the AuthiChain API has no endpoint for this tool; calling it returns an error without contacting the API.
+
+Query the AuthiChain Truth Network — a 5-agent AI consensus system that evaluates product authenticity using independent analysis from specialized AI agents.
 
 Agents and their roles:
 - Guardian (35% consensus weight): Primary authentication engine. Analyzes physical markers, metadata consistency, and provenance claims.
@@ -416,36 +406,11 @@ Use when: A user needs expert analysis on product authenticity, supply chain int
     },
   },
   async ({ query, context }) => {
-    try {
-      const result = await apiRequest<any>("truth-network/query", "POST", {
-        query, context: context ?? {}, source: "mcp",
-      });
-
-      const output = {
-        query,
-        consensus: result.consensus ?? "INCONCLUSIVE",
-        confidence: result.confidence ?? 0,
-        analysis: result.analysis ?? "",
-        agents: {
-          guardian: { score: result.agents?.guardian?.score ?? 0, assessment: result.agents?.guardian?.assessment ?? "" },
-          archivist: { score: result.agents?.archivist?.score ?? 0, assessment: result.agents?.archivist?.assessment ?? "" },
-          sentinel: { score: result.agents?.sentinel?.score ?? 0, assessment: result.agents?.sentinel?.assessment ?? "" },
-          scout: { score: result.agents?.scout?.score ?? 0, assessment: result.agents?.scout?.assessment ?? "" },
-          arbiter: { score: result.agents?.arbiter?.score ?? 0, assessment: result.agents?.arbiter?.assessment ?? "" },
-        },
-        recommendations: result.recommendations ?? [],
-      };
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(output, null, 2) }],
-        structuredContent: output,
-      };
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Truth Network query failed: ${(error as Error).message}` }],
-        isError: true,
-      };
-    }
+    void context;
+    return notYetAvailable(
+      "Truth Network query",
+      `No Truth Network endpoint exists yet (query: ${JSON.stringify(query.slice(0, 200))}). For registry lookups use authichain_verify_product.`
+    );
   }
 );
 
@@ -533,7 +498,9 @@ server.registerTool(
   "authichain_mint_certificate",
   {
     title: "Mint Authentication Certificate NFT",
-    description: `Mint a blockchain authentication certificate as an NFT on Polygon for a registered product.
+    description: `NOT YET AVAILABLE — the AuthiChain API has no endpoint for this tool; calling it returns an error without contacting the API.
+
+Mint a blockchain authentication certificate as an NFT on Polygon for a registered product.
 
 The certificate is minted on Polygon (contract: 0x4da4D2675e52374639C9c954f4f653887A9972BE) and includes:
 - Product identity hash
@@ -561,35 +528,11 @@ Use when: A brand wants to create a blockchain-backed proof of authenticity for 
     },
   },
   async ({ product_id, metadata_uri }) => {
-    try {
-      const result = await apiRequest<any>("certificates/mint", "POST", {
-        product_id,
-        metadata_uri: metadata_uri ?? null,
-        source: "mcp",
-      });
-
-      const output = {
-        product_id,
-        token_id: result.token_id ?? null,
-        transaction_hash: result.tx_hash ?? null,
-        contract: "0x4da4D2675e52374639C9c954f4f653887A9972BE",
-        network: "Polygon (chainId: 137)",
-        certificate_url: result.certificate_url ?? null,
-        qr_code_url: result.qr_code_url ?? null,
-        gas_cost: result.gas_cost ?? "< $0.001",
-        status: "minted",
-      };
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(output, null, 2) }],
-        structuredContent: output,
-      };
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Minting failed: ${(error as Error).message}` }],
-        isError: true,
-      };
-    }
+    void metadata_uri;
+    return notYetAvailable(
+      "Certificate minting",
+      `No mint endpoint exists yet; nothing was minted for product ${product_id}. authichain_verify_product returns a signed (off-chain) verification certificate when the API has a signing key configured.`
+    );
   }
 );
 
@@ -602,7 +545,9 @@ server.registerTool(
   "authichain_verify_cannabis",
   {
     title: "Verify Cannabis Product (StrainChain)",
-    description: `Verify a cannabis product through StrainChain — AuthiChain's cannabis-specific vertical.
+    description: `NOT YET AVAILABLE — the AuthiChain API has no endpoint for this tool; calling it returns an error without contacting the API.
+
+Verify a cannabis product through StrainChain — AuthiChain's cannabis-specific vertical.
 
 Checks product against 1,001+ registered Michigan cannabis products including:
 - Strain authenticity and genetics
@@ -630,43 +575,11 @@ Use when: A consumer or dispensary asks about cannabis product authenticity or l
     },
   },
   async ({ product_id, include_lab_results }) => {
-    try {
-      const result = await apiRequest<any>("strainchain/verify", "POST", {
-        product_id, include_lab_results, source: "mcp",
-      });
-
-      const output = {
-        product_id,
-        verified: result.verified ?? false,
-        strain_name: result.strain_name ?? null,
-        strain_type: result.strain_type ?? null,
-        cultivator: result.cultivator ?? null,
-        dispensary: result.dispensary ?? null,
-        trust_score: result.trust_score ?? 0,
-        metrc_compliant: result.metrc_compliant ?? false,
-        certificate_hash: result.certificate_hash ?? null,
-        ...(include_lab_results ? {
-          lab_results: {
-            thc_percentage: result.lab?.thc ?? null,
-            cbd_percentage: result.lab?.cbd ?? null,
-            terpene_profile: result.lab?.terpenes ?? {},
-            tested_by: result.lab?.lab_name ?? null,
-            test_date: result.lab?.test_date ?? null,
-            passed: result.lab?.passed ?? false,
-          },
-        } : {}),
-      };
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(output, null, 2) }],
-        structuredContent: output,
-      };
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Cannabis verification failed: ${(error as Error).message}` }],
-        isError: true,
-      };
-    }
+    void include_lab_results;
+    return notYetAvailable(
+      "StrainChain cannabis verification",
+      `No StrainChain endpoint exists yet (product ${product_id}). authichain_verify_product can look up registered products, but it has no lab/COA or METRC data.`
+    );
   }
 );
 
@@ -701,7 +614,7 @@ if (transportMode === "http") {
   app.listen(PORT, () => {
     console.log(`AuthiChain MCP Server running on http://localhost:${PORT}/mcp`);
     console.log(`Health check: http://localhost:${PORT}/health`);
-    console.log(`Tools: 8 | Revenue endpoints: 7`);
+    console.log(`Tools: 8 (4 backed by the API, 4 not yet available)`);
   });
 } else {
   const transport = new StdioServerTransport();
